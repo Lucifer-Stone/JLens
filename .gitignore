@@ -1,0 +1,9 @@
+# Binaries
+jlens
+*.exe
+
+# OS files
+.DS_Store
+
+# Go build cache
+*.out
