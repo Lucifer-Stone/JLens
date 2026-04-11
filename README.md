@@ -23,7 +23,7 @@ If you use `curl` and deal with messy JSON responses, JLens turns chaos into cla
 ## 🚀 Installation
 
 ```bash
-go install github.com/YOUR_USERNAME/jlens@latest
+go install github.com/Lucifer-Stone/jlens@latest
 ```
 
 Make sure `$GOPATH/bin` is in your PATH.
@@ -117,7 +117,7 @@ Unlike tools like jq, JLens focuses on:
 ## 🛠️ Build from Source
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/jlens.git
+git clone https://github.com/Lucifer-Stone/jlens.git
 cd jlens
 go build -o jlens
 ```
