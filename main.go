@@ -311,6 +311,40 @@ func printStats(obj interface{}) {
 	fmt.Printf("Max Depth:     %d\n", maxDepth)
 }
 
+func generateLineDiff(a, b string) []string {
+	linesA := strings.Split(a, "\n")
+	linesB := strings.Split(b, "\n")
+
+	maxLen := len(linesA)
+	if len(linesB) > maxLen {
+		maxLen = len(linesB)
+	}
+
+	var result []string
+
+	for i := 0; i < maxLen; i++ {
+		var lineA, lineB string
+
+		if i < len(linesA) {
+			lineA = linesA[i]
+		}
+		if i < len(linesB) {
+			lineB = linesB[i]
+		}
+
+		if lineA != lineB {
+			if lineA != "" {
+				result = append(result, color.RedString("- "+lineA))
+			}
+			if lineB != "" {
+				result = append(result, color.GreenString("+ "+lineB))
+			}
+		}
+	}
+
+	return result
+}
+
 func runDiff(data1 []byte, file2 string) error {
 	data2, err := os.ReadFile(file2)
 	if err != nil {
@@ -321,7 +355,6 @@ func runDiff(data1 []byte, file2 string) error {
 	json.Unmarshal(data1, &obj1)
 	json.Unmarshal(data2, &obj2)
 
-	// Format both consistently to diff them
 	b1, _ := json.MarshalIndent(obj1, "", "  ")
 	b2, _ := json.MarshalIndent(obj2, "", "  ")
 
@@ -330,10 +363,13 @@ func runDiff(data1 []byte, file2 string) error {
 		return nil
 	}
 
-	fmt.Println(color.RedString("✘ JSON payloads differ. (Displaying structural comparison)"))
-	// For a CLI tool, outputting a basic text diff notification is great.
-	// Users can pipe to `diff` for line-by-line, but we notify them here.
-	fmt.Printf("Size 1: %d bytes\nSize 2: %d bytes\n", len(b1), len(b2))
+	fmt.Println(color.YellowString("⚠ Differences detected:\n"))
+
+	diffLines := generateLineDiff(string(b1), string(b2))
+
+	for _, line := range diffLines {
+		fmt.Println(line)
+	}
 
 	return nil
 }
