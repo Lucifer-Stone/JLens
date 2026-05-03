@@ -7,3 +7,8 @@ jlens
 
 # Go build cache
 *.out
+
+# IDE and Workspaces
+.vscode/
+.idea/
+*.code-workspace
