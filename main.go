@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -28,6 +27,13 @@ var (
 	statsFlag    bool
 	diffFlag     string
 	outputFlag   string
+
+	// New Feature Flags
+	toFlag          string
+	maskFlag        string
+	schemaFlag      string
+	clipFlag        bool
+	interactiveFlag bool
 
 	// Syntax Highlighting Colors
 	keyColor    = color.New(color.FgCyan, color.Bold)
@@ -56,6 +62,13 @@ func main() {
 	rootCmd.Flags().StringVar(&diffFlag, "diff", "", "Compare input JSON with another file")
 	rootCmd.Flags().StringVarP(&outputFlag, "output", "o", "", "Write output to a file instead of stdout")
 
+	// New Feature Flags
+	rootCmd.Flags().StringVar(&toFlag, "to", "", "Convert output to 'yaml' or 'toml'")
+	rootCmd.Flags().StringVar(&maskFlag, "mask", "", "Comma-separated keys to mask with ***")
+	rootCmd.Flags().StringVar(&schemaFlag, "schema", "", "Path to JSON schema file to validate against")
+	rootCmd.Flags().BoolVar(&clipFlag, "clip", false, "Copy output to clipboard")
+	rootCmd.Flags().BoolVar(&interactiveFlag, "interactive", false, "Open interactive TUI mode")
+
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
@@ -71,6 +84,16 @@ func runJLens(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no input provided")
 	}
 
+	// 1.5 Schema Validation
+	if schemaFlag != "" {
+		if err := validateSchema(inputData, schemaFlag); err != nil {
+			fmt.Println(color.RedString("❌ Schema validation failed:"))
+			fmt.Println(err)
+			return err
+		}
+		fmt.Println(color.GreenString("✔ JSON is valid according to schema."))
+	}
+
 	// 2. Validate JSON & Get Errors
 	var jsonObj interface{}
 	if err := json.Unmarshal(inputData, &jsonObj); err != nil {
@@ -80,6 +103,16 @@ func runJLens(cmd *cobra.Command, args []string) error {
 	if validateFlag {
 		fmt.Println(color.GreenString("✔ JSON is valid."))
 		return nil
+	}
+
+	// 2.5 TUI Mode
+	if interactiveFlag {
+		return runInteractiveTUI(inputData)
+	}
+
+	// 2.6 Masking
+	if maskFlag != "" {
+		jsonObj = applyMask(jsonObj, maskFlag)
 	}
 
 	// 3. Stats Mode
@@ -105,6 +138,31 @@ func runJLens(cmd *cobra.Command, args []string) error {
 		json.Unmarshal(inputData, &jsonObj) // Re-parse for formatting
 	}
 
+	// 5.5 Format Conversion
+	if toFlag != "" {
+		converted, err := convertFormat(jsonObj, toFlag)
+		if err != nil {
+			return err
+		}
+		outStr := string(converted)
+
+		if clipFlag {
+			if err := copyToClipboard(outStr); err != nil {
+				fmt.Println(color.RedString("Failed to copy to clipboard: " + err.Error()))
+			} else {
+				fmt.Println(color.GreenString("✔ Copied to clipboard!"))
+			}
+		}
+
+		if outputFlag != "" {
+			os.WriteFile(outputFlag, converted, 0644)
+			fmt.Printf("Output successfully written to %s\n", outputFlag)
+			return nil
+		}
+		fmt.Println(outStr)
+		return nil
+	}
+
 	// 6. Formatting
 	formattedData, err := formatJSON(jsonObj)
 	if err != nil {
@@ -128,6 +186,14 @@ func runJLens(cmd *cobra.Command, args []string) error {
 		outStr = applySyntaxHighlighting(outStr)
 	}
 
+	if clipFlag {
+		if err := copyToClipboard(outStr); err != nil {
+			fmt.Println(color.RedString("Failed to copy to clipboard: " + err.Error()))
+		} else {
+			fmt.Println(color.GreenString("✔ Copied to clipboard!"))
+		}
+	}
+
 	fmt.Println(outStr)
 	return nil
 }
@@ -135,15 +201,17 @@ func runJLens(cmd *cobra.Command, args []string) error {
 // --- Core Functions ---
 
 func readInput(args []string) ([]byte, error) {
+	// Read from file if argument is provided
+	if len(args) > 0 {
+		return os.ReadFile(args[0])
+	}
+
 	stat, _ := os.Stdin.Stat()
 	// Check if data is piped via stdin
 	if (stat.Mode() & os.ModeCharDevice) == 0 {
 		return io.ReadAll(os.Stdin)
 	}
-	// Read from file if argument is provided
-	if len(args) > 0 {
-		return os.ReadFile(args[0])
-	}
+
 	return nil, nil
 }
 
@@ -309,67 +377,4 @@ func printStats(obj interface{}) {
 	fmt.Printf("Total Arrays:  %d\n", totalArrays)
 	fmt.Printf("Total Keys:    %d\n", totalKeys)
 	fmt.Printf("Max Depth:     %d\n", maxDepth)
-}
-
-func generateLineDiff(a, b string) []string {
-	linesA := strings.Split(a, "\n")
-	linesB := strings.Split(b, "\n")
-
-	maxLen := len(linesA)
-	if len(linesB) > maxLen {
-		maxLen = len(linesB)
-	}
-
-	var result []string
-
-	for i := 0; i < maxLen; i++ {
-		var lineA, lineB string
-
-		if i < len(linesA) {
-			lineA = linesA[i]
-		}
-		if i < len(linesB) {
-			lineB = linesB[i]
-		}
-
-		if lineA != lineB {
-			if lineA != "" {
-				result = append(result, color.RedString("- "+lineA))
-			}
-			if lineB != "" {
-				result = append(result, color.GreenString("+ "+lineB))
-			}
-		}
-	}
-
-	return result
-}
-
-func runDiff(data1 []byte, file2 string) error {
-	data2, err := os.ReadFile(file2)
-	if err != nil {
-		return fmt.Errorf("failed to read diff file: %w", err)
-	}
-
-	var obj1, obj2 interface{}
-	json.Unmarshal(data1, &obj1)
-	json.Unmarshal(data2, &obj2)
-
-	b1, _ := json.MarshalIndent(obj1, "", "  ")
-	b2, _ := json.MarshalIndent(obj2, "", "  ")
-
-	if reflect.DeepEqual(obj1, obj2) {
-		fmt.Println(color.GreenString("✔ JSON payloads are identical."))
-		return nil
-	}
-
-	fmt.Println(color.YellowString("⚠ Differences detected:\n"))
-
-	diffLines := generateLineDiff(string(b1), string(b2))
-
-	for _, line := range diffLines {
-		fmt.Println(line)
-	}
-
-	return nil
 }

@@ -1,0 +1,9 @@
+{
+  "user": {
+    "name": "Bob",
+    "age": 25,
+    "active": true,
+    "website": "example.com"
+  },
+  "roles": ["admin"]
+}
